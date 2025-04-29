@@ -1,0 +1,114 @@
+import gym
+from gym import spaces
+import numpy as np
+import random
+
+# --------------------------
+# Simulated disease dataset
+# --------------------------
+disease_data = {
+    "Lupus": {
+        "body_system": "immune",
+        "symptoms": ["fatigue", "joint_pain", "rash", "fever"],
+    },
+    "Diabetes": {
+        "body_system": "endocrine",
+        "symptoms": ["fatigue", "thirst", "frequent_urination"],
+    },
+    "Malaria": {
+        "body_system": "infectious",
+        "symptoms": ["fever", "chills", "sweating", "headache"],
+    },
+    "Common Cold": {
+        "body_system": "respiratory",
+        "symptoms": ["sore_throat", "runny_nose", "fever", "cough"],
+    },
+    "Hypertension": {
+        "body_system": "cardiovascular",
+        "symptoms": ["headache", "dizziness", "nosebleeds"],
+    },
+    "Anemia": {
+        "body_system": "hematologic",
+        "symptoms": ["fatigue", "pale_skin", "shortness_of_breath"],
+    },
+  
+}
+
+ #Custom Gym Environment for Diagnosis
+
+class MultiDiseaseDiagnosisEnv(gym.Env):
+    def __init__(self):
+        super(MultiDiseaseDiagnosisEnv, self).__init__()
+
+        self.disease_data = disease_data
+        self.diseases = list(disease_data.keys())
+        self.symptoms = sorted(list({s for d in disease_data.values() for s in d["symptoms"]}))
+        self.body_systems = sorted(list(set(d["body_system"] for d in disease_data.values())))
+
+        self.symptom_index = {s: i for i, s in enumerate(self.symptoms)}
+        self.disease_index = {d: i for i, d in enumerate(self.diseases)}
+        self.body_index = {b: i for i, b in enumerate(self.body_systems)}
+
+        # State: symptoms - unknown (0), present (1), absent (2)
+        self.observation_space = spaces.MultiDiscrete([3] * len(self.symptoms))
+
+        # Actions: ask about symptom, diagnose disease, predict body system
+        self.symptom_actions = len(self.symptoms)
+        self.diagnosis_actions = len(self.diseases)
+        self.body_actions = len(self.body_systems)
+        self.action_space = spaces.Discrete(
+            self.symptom_actions + self.diagnosis_actions + self.body_actions
+        )
+
+        self.reset()
+
+    def reset(self):
+        self.patient_disease = random.choice(self.diseases)
+        self.patient_symptoms = self.disease_data[self.patient_disease]["symptoms"]
+        self.body_system = self.disease_data[self.patient_disease]["body_system"]
+
+        self.state = [0] * len(self.symptoms)
+        self.done = False
+        self.steps = 0
+        return np.array(self.state)
+
+    def step(self, action):
+        reward = -1  # default step cost
+        self.steps += 1
+
+        if action < self.symptom_actions:
+            # Ask about a symptom
+            symptom = self.symptoms[action]
+            noise = random.random() < 0.1  # 10% noise
+            present = symptom in self.patient_symptoms
+            if noise:
+                present = not present
+            self.state[action] = 1 if present else 2
+
+        elif action < self.symptom_actions + self.diagnosis_actions:
+            # Make a disease diagnosis
+            guessed_disease = self.diseases[action - self.symptom_actions]
+            if guessed_disease == self.patient_disease:
+                reward = 10
+            else:
+                reward = -10
+            self.done = True
+
+        else:
+            # Predict the body system
+            guessed_body = self.body_systems[action - self.symptom_actions - self.diagnosis_actions]
+            if guessed_body == self.body_system:
+                reward = 3
+            else:
+                reward = -2
+
+        if self.steps >= 30:
+            self.done = True
+
+        return np.array(self.state), reward, self.done, {}
+
+    def render(self, mode="human"):
+        print(f"Patient has: {self.patient_disease} ({self.body_system})")
+        print("Symptom states (0=unknown, 1=present, 2=absent):")
+        for i, val in enumerate(self.state):
+            print(f"  {self.symptoms[i]}: {val}")
